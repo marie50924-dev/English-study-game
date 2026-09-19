@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="小学生から大学生まで遊べる英単語マッチングゲーム。日本語と英語をつないで、正解したら発音が聞ける。">
-<meta name="theme-color" content="#0b1020">
-<title>EIGO MATCH ― 英単語マッチングゲーム</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<meta name="description" content="日本のかるたで英単語を覚えるゲーム。読み手の声を聞いて札を取り合う。小学生から大学生まで。">
+<meta name="theme-color" content="#14202e">
+<title>英単語かるた ― EIGO KARUTA</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🀄</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@500;700&display=swap">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -15,120 +18,153 @@
   <!-- ===== ホーム ===== -->
   <section id="screen-home" class="screen active">
     <header class="hero">
-      <h1 class="logo"><span class="logo-en">EIGO&nbsp;MATCH</span><span class="logo-ja">英単語マッチングゲーム</span></h1>
-      <p class="tagline">日本語と英語をつなげ。当たったら<strong>発音が聞ける</strong>。</p>
+      <div class="hero-seal">札</div>
+      <h1 class="logo"><span class="logo-ja">英単語かるた</span><span class="logo-en">EIGO KARUTA</span></h1>
+      <p class="tagline">読み手の声を聞いて、<strong>日本語と英語の札</strong>を取り合う。</p>
     </header>
 
-    <div class="player-card">
+    <div class="panel player-card">
       <div class="player-lv">
-        <span class="lv-badge">Lv.<b id="playerLv">1</b></span>
+        <span class="lv-badge">段位 <b id="playerLv">1</b></span>
         <div class="lv-bar"><i id="lvBarFill"></i></div>
         <span class="lv-xp" id="playerXp">0 / 100 XP</span>
       </div>
       <div class="player-stats">
-        <span>プレイ <b id="statPlays">0</b>回</span>
-        <span>正解 <b id="statCorrect">0</b></span>
+        <span>対戦成績 <b id="statRecord">0勝 0敗</b></span>
+        <span>取った札 <b id="statCorrect">0</b></span>
         <span>おぼえた単語 <b id="statWords">0</b></span>
       </div>
     </div>
 
-    <div class="weak-card" id="weakCard" hidden>
+    <div class="panel weak-card" id="weakCard" hidden>
       <div class="weak-head">
-        <span class="weak-title">🔁 苦手な単語 <b id="weakCount">0</b> 語</span>
+        <span class="weak-title">🔁 苦手な札 <b id="weakCount">0</b> 枚</span>
         <div class="weak-actions">
           <button class="toggle" id="weakToggle" type="button" aria-pressed="false">苦手モード</button>
           <button class="toggle mini" id="weakClear" type="button">リセット</button>
         </div>
       </div>
       <div class="weak-list" id="weakList"></div>
-      <p class="weak-note">苦手モードをONにすると、間違えた単語だけが出題されます。ノーミスで正解できた単語はリストから消えます。</p>
+      <p class="note">苦手モードをONにすると、取りそこねた札だけが場に並びます。ノーミスで取れた札はリストから消えます。</p>
     </div>
 
-    <h2 class="section-title"><span class="num">1</span>レベルをえらぶ</h2>
+    <h2 class="section-title"><span class="num">一</span>学年をえらぶ</h2>
     <div class="grid-select" id="levelSelect"></div>
 
-    <h2 class="section-title"><span class="num">2</span>モードをえらぶ</h2>
-    <div class="grid-select modes" id="modeSelect"></div>
+    <h2 class="section-title"><span class="num">二</span>遊び方をえらぶ</h2>
+    <div class="grid-select" id="modeSelect"></div>
+
+    <h2 class="section-title"><span class="num">三</span>読み方をえらぶ</h2>
+    <div class="grid-select" id="styleSelect"></div>
+
+    <div id="oppSection">
+      <h2 class="section-title"><span class="num">四</span>相手をえらぶ</h2>
+      <div class="grid-select" id="oppSelect"></div>
+    </div>
 
     <div class="start-zone">
-      <div class="best-line">ベストスコア <b id="bestScore">0</b></div>
-      <button id="startBtn" class="btn-start" type="button">
-        <span>▶ ゲームスタート</span>
-      </button>
+      <div class="best-line">最高得点 <b id="bestScore">0</b></div>
+      <button id="startBtn" class="btn-start" type="button">はじめる</button>
     </div>
 
     <div class="settings-row">
       <button class="toggle" id="toggleSfx" type="button" aria-pressed="true">🔔 効果音</button>
-      <button class="toggle" id="toggleSpeak" type="button" aria-pressed="true">🔊 自動発音</button>
-      <button class="toggle" id="toggleRate" type="button">🐢 読む速さ：ふつう</button>
+      <button class="toggle" id="toggleSpeak" type="button" aria-pressed="true">🔊 取ったら発音</button>
+      <button class="toggle" id="toggleRate" type="button">🚶 読む速さ：ふつう</button>
     </div>
-    <p class="speech-warn" id="speechWarn" hidden>※ このブラウザは音声読み上げに対応していません。Chrome / Safari / Edge の利用をおすすめします。</p>
+    <p class="warn" id="speechWarn" hidden>※ このブラウザは音声読み上げに対応していないため、英語読みは使えません。日本語読みでお楽しみください。</p>
+    <p class="warn soft" id="jaVoiceNote" hidden>※ 日本語の音声が見つからないため、日本語読みは札の文字だけで読み上げます。</p>
 
-    <details class="howto">
-      <summary>あそびかた</summary>
+    <details class="panel howto">
+      <summary>かるたの遊び方</summary>
       <ul>
-        <li><b>⚡ マッチング</b>：左の日本語と右の英語をタップしてペアを消す。正解するたびに時間が少し増える。</li>
-        <li><b>🃏 神経衰弱</b>：裏向きのカードをめくって、日本語と英語のペアをそろえる。</li>
-        <li><b>⏱️ スピードクイズ</b>：4択で答える。キーボードの <kbd>1</kbd>〜<kbd>4</kbd> でも回答できる。</li>
-        <li><b>🎧 リスニング</b>：英語の発音だけを聞いて意味を当てる。<kbd>R</kbd> キーでもう一度聞ける。</li>
-        <li>ミスは<b>♥ 3つ</b>まで。連続正解するとコンボ倍率でスコアが伸びる。</li>
-        <li>正解した単語は自動で読み上げ。結果画面の 🔊 で何度でも聞き直せる。</li>
-        <li>間違えた単語は「苦手な単語」に貯まる。<b>苦手モード</b>で集中的に復習できる。</li>
-        <li>マッチングは一定数そろえるとステージが上がり、場のカードが増えていく。</li>
+        <li><b>読み札</b>が読まれたら、畳に散らばった<b>取り札</b>から正しい1枚を探してタップ。</li>
+        <li><b>英語読み</b>… 英単語の発音が流れる → 意味の<b>日本語の札</b>を取る。<kbd>R</kbd> キーで聞き直せる。</li>
+        <li><b>日本語読み</b>… 日本語が読み札に出る → <b>英語の札</b>を取る。</li>
+        <li><b>🀄 かるた対戦</b>… 十二枚勝負。相手より多く取れば勝ち。相手は一定の速さで取りにくる。</li>
+        <li><b>⏳ ひとりかるた</b>… 60秒で何枚取れるか。取るたびに札が補充される。</li>
+        <li><b>お手つき</b>（違う札を取る）… 持ち札を1枚相手に渡し、少しのあいだ手が止まる。</li>
+        <li>少し待つと<b>決まり字</b>（頭の1文字）のヒントが出る。早く取るほど高得点。</li>
       </ul>
     </details>
   </section>
 
-  <!-- ===== ゲーム ===== -->
+  <!-- ===== 対戦画面 ===== -->
   <section id="screen-game" class="screen">
-    <div class="hud">
-      <div class="hud-top">
-        <button id="quitBtn" class="hud-quit" type="button" title="やめる">✕</button>
-        <span class="hud-chip" id="hudLevelLabel"></span>
-        <span class="hud-chip" id="hudModeLabel"></span>
-        <span class="hud-chip" id="hudStage">STAGE 1</span>
-        <span class="hud-hearts" id="hudHearts"></span>
-      </div>
-      <div class="hud-main">
-        <div class="hud-score"><span class="hud-label">SCORE</span><b id="hudScore">0</b></div>
-        <div class="hud-combo" id="hudCombo"></div>
-        <div class="hud-time"><span class="hud-label">TIME</span><b id="timerText">0</b></div>
-      </div>
-      <div class="timer-track"><i id="timerBar"></i></div>
+    <div class="game-top">
+      <button id="quitBtn" class="icon-btn" type="button" title="やめる">✕</button>
+      <span class="chip" id="hudLevelLabel"></span>
+      <span class="chip" id="hudModeLabel"></span>
+      <span class="chip">残り <b id="hudLeft">0</b> 枚</span>
+      <span class="chip">お手つき <b id="hudOtetsuki">0</b></span>
+      <span class="chip score">得点 <b id="hudScore">0</b></span>
     </div>
 
-    <div id="board" class="board"></div>
-    <div id="comboPop" class="combo-pop"></div>
+    <div class="tally" id="oppPanel">
+      <div class="tally-side me">
+        <span class="tally-name">じぶん</span>
+        <span class="tally-num" id="scoreMine">0</span>
+      </div>
+      <span class="tally-vs">対</span>
+      <div class="tally-side opp">
+        <span class="tally-num" id="scoreTheirs">0</span>
+        <span class="tally-name" id="oppName">相手</span>
+      </div>
+    </div>
+
+    <div class="kendai">
+      <div class="yomi-label" id="yomiLabel">読み札</div>
+      <div class="yomi-body" id="yomiBody"></div>
+      <div class="yomi-hint" id="yomiHint"></div>
+    </div>
+
+    <div class="race">
+      <div class="race-track"><i id="raceBar"></i></div>
+      <div class="race-label" id="raceLabel"></div>
+    </div>
+
+    <div class="tatami">
+      <div id="field" class="field"></div>
+    </div>
+
+    <div class="combo-line" id="hudCombo"></div>
+    <div id="popup" class="popup"></div>
+    <div id="countdown" class="countdown" hidden></div>
   </section>
 
-  <!-- ===== リザルト ===== -->
+  <!-- ===== 結果 ===== -->
   <section id="screen-result" class="screen">
-    <div class="result-card">
-      <div class="result-headline" id="resultHeadline">TIME UP!</div>
-      <div class="rank" id="rankBadge">B</div>
-      <div class="result-score"><span>SCORE</span><b id="resultScore">0</b></div>
-      <div class="new-record" id="newRecord" hidden>🏆 ハイスコア更新！</div>
+    <div class="panel result-card">
+      <div class="result-headline" id="resultHeadline">勝負あり</div>
+      <div class="result-outcome" id="resultOutcome" data-outcome="win">勝ち</div>
 
-      <div class="result-grid">
-        <div><span>正解</span><b id="resultCorrect">0</b></div>
-        <div><span>ミス</span><b id="resultWrong">0</b></div>
-        <div><span>最大コンボ</span><b id="resultCombo">0</b></div>
-        <div><span>正答率</span><b id="resultAcc">0%</b></div>
-        <div><span>獲得XP</span><b id="resultXp">0</b></div>
-        <div><span>ベスト</span><b id="resultBest">0</b></div>
+      <div class="result-tally" id="resultTally">
+        <div><span>じぶん</span><b id="resultMine">0</b><i>枚</i></div>
+        <span class="vs">対</span>
+        <div><span id="resultOppName">相手</span><b id="resultTheirs">0</b><i>枚</i></div>
       </div>
 
-      <h3 class="words-title">出てきた単語（🔊 で発音）</h3>
+      <div class="result-score"><span>得点</span><b id="resultScore">0</b></div>
+      <div class="new-record" id="newRecord" hidden>🏆 最高得点を更新！</div>
+
+      <div class="result-grid">
+        <div><span>お手つき</span><b id="resultOtetsuki">0</b></div>
+        <div><span>最速</span><b id="resultFast">-</b></div>
+        <div><span>連取り</span><b id="resultCombo">0</b></div>
+        <div><span>獲得XP</span><b id="resultXp">0</b></div>
+        <div><span>最高得点</span><b id="resultBest">0</b></div>
+        <div><span>かかった時間</span><b id="resultTime">0秒</b></div>
+      </div>
+
+      <h3 class="words-title">この勝負に出た札（🔊 で発音）</h3>
       <div class="word-list" id="wordList"></div>
 
       <div class="result-actions">
-        <button id="retryBtn" class="btn-start" type="button">↻ もう一度</button>
-        <button id="homeBtn" class="btn-ghost" type="button">🏠 ホームへ</button>
+        <button id="retryBtn" class="btn-start" type="button">もう一番</button>
+        <button id="homeBtn" class="btn-ghost" type="button">ホームへ</button>
       </div>
     </div>
   </section>
-
-  <div id="fxLayer" class="fx-layer" aria-hidden="true"></div>
 </div>
 
 <script src="js/data.js"></script>

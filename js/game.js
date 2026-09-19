@@ -1,11 +1,18 @@
 /**
- * ゲーム本体。3つのモード（マッチング / 神経衰弱 / スピードクイズ）を
- * 共通のHUD・スコア計算・タイマーの上で動かす。
+ * 英単語かるた のゲーム本体。
+ *
+ * 流れ:
+ *   読み手が札を1枚読む（英語なら音声、日本語なら文字＋音声）
+ *     → プレイヤーは畳に散らした取り札から正しい1枚を探して取る
+ *     → 対戦モードでは相手も一定時間後に取りにくる（早い者勝ち）
+ *     → 違う札を取ると「お手つき」で持ち札を1枚相手に渡す
  */
-const Game = (() => {
-  /* ---------- 共通ユーティリティ ---------- */
-
+const Karuta = (() => {
   const $ = (sel) => document.querySelector(sel);
+
+  const HINT_DELAY = 2600;      // 決まり字ヒントが出るまで
+  const OTETSUKI_FREEZE = 1200; // お手つき後に手が止まる時間
+  const NEXT_DELAY = 950;       // 次の札を読むまでの間
 
   function shuffle(arr) {
     const a = arr.slice();
@@ -23,102 +30,38 @@ const Game = (() => {
     return n;
   }
 
-  /* ---------- セッション状態 ---------- */
-
-  let s = null;          // 現在のセッション
-  let impl = null;       // 現在のモード実装
-  let rafId = null;
+  let s = null;
   let onEnd = () => {};
+  let rafId = null;
+  let hintTimer = null, cpuTimer = null, nextTimer = null, freezeTimer = null;
+  let fieldEl = null;
 
-  const HEARTS = 3;
+  /* ---------- 出題プール ---------- */
 
-  function newSession(level, mode) {
-    return {
-      level,
-      mode,
-      score: 0,
-      combo: 0,
-      maxCombo: 0,
-      correct: 0,
-      wrong: 0,
-      hearts: HEARTS,
-      stage: 1,
-      timeMax: MODES[mode].time,
-      timeLeft: MODES[mode].time,
-      learned: [],       // 出題された単語の記録
-      learnedIndex: {},  // en -> learned配列の位置
-      cleared: false,
-      running: false,
-      lastTickSec: null,
-      startedAt: 0
-    };
+  /** 苦手モードがONなら、間違えた単語を優先して札にする */
+  function buildPool(level) {
+    const base = VOCAB[level].words;
+    if (!Settings.get('weakMode')) return shuffle(base);
+    const weak = Store.weakWords().map((w) => ({ en: w.en, ja: w.ja }));
+    const MIN = 16;
+    if (weak.length >= MIN) return shuffle(weak);
+    const fill = shuffle(base.filter((b) => !weak.some((w) => w.en === b.en)));
+    return shuffle(weak).concat(fill.slice(0, MIN - weak.length));
   }
 
-  /* ---------- HUD ---------- */
-
-  function renderHud() {
-    $('#hudScore').textContent = s.score.toLocaleString();
-    $('#hudCombo').textContent = s.combo > 1 ? s.combo + ' COMBO' : '';
-    $('#hudCombo').classList.toggle('on', s.combo > 1);
-    $('#hudStage').textContent = 'STAGE ' + s.stage;
-
-    const hearts = $('#hudHearts');
-    hearts.innerHTML = '';
-    for (let i = 0; i < HEARTS; i++) {
-      const h = el('span', 'heart' + (i < s.hearts ? '' : ' lost'), '♥');
-      hearts.appendChild(h);
-    }
+  /** 取り札の面（ja=日本語の札 / en=英語の札）を決める */
+  function faceFor(style) {
+    if (style === 'en') return 'ja';
+    if (style === 'ja') return 'en';
+    return Math.random() < 0.5 ? 'ja' : 'en';
   }
 
-  function renderTimer() {
-    const ratio = Math.max(0, s.timeLeft / s.timeMax);
-    const bar = $('#timerBar');
-    bar.style.transform = 'scaleX(' + ratio + ')';
-    bar.classList.toggle('warning', s.timeLeft <= 10);
-    $('#timerText').textContent = Math.ceil(Math.max(0, s.timeLeft));
+  /** 取り札が日本語なら英語読み、英語なら日本語読み */
+  function readStyleOf(card) {
+    return card.face === 'ja' ? 'en' : 'ja';
   }
 
-  /* ---------- 演出 ---------- */
-
-  function popCombo(text, cls) {
-    const pop = $('#comboPop');
-    pop.textContent = text;
-    pop.className = 'combo-pop show ' + (cls || '');
-    // アニメーションを再生し直すためリフローを挟む
-    void pop.offsetWidth;
-    pop.classList.add('show');
-    clearTimeout(pop._t);
-    pop._t = setTimeout(() => pop.classList.remove('show'), 700);
-  }
-
-  /** 正解したカードの位置から粒子を飛ばす */
-  function burst(node) {
-    const layer = $('#fxLayer');
-    const r = node.getBoundingClientRect();
-    const cx = r.left + r.width / 2;
-    const cy = r.top + r.height / 2;
-    const colors = ['#facc15', '#f472b6', '#38bdf8', '#4ade80', '#fff'];
-    for (let i = 0; i < 12; i++) {
-      const p = el('span', 'particle');
-      const ang = (Math.PI * 2 * i) / 12 + Math.random() * 0.5;
-      const dist = 50 + Math.random() * 70;
-      p.style.left = cx + 'px';
-      p.style.top = cy + 'px';
-      p.style.background = colors[i % colors.length];
-      p.style.setProperty('--dx', Math.cos(ang) * dist + 'px');
-      p.style.setProperty('--dy', Math.sin(ang) * dist + 'px');
-      layer.appendChild(p);
-      setTimeout(() => p.remove(), 700);
-    }
-  }
-
-  function flash(cls) {
-    const b = $('#screen-game');
-    b.classList.add(cls);
-    setTimeout(() => b.classList.remove(cls), 260);
-  }
-
-  /* ---------- スコア処理 ---------- */
+  /* ---------- 記録 ---------- */
 
   function recordWord(word, ok) {
     const i = s.learnedIndex[word.en];
@@ -131,616 +74,441 @@ const Game = (() => {
     }
   }
 
-  /**
-   * 正解時の共通処理。base点にコンボ倍率をかけて加点し、発音を再生する。
-   * @param {object} word 正解した単語
-   * @param {object} opts { base, bonusTime, node }
-   */
-  function onCorrect(word, opts = {}) {
-    const base = opts.base != null ? opts.base : 100;
+  /* ---------- 表示 ---------- */
+
+  function renderHud() {
+    $('#scoreMine').textContent = s.mine;
+    $('#scoreTheirs').textContent = s.theirs;
+    $('#hudOtetsuki').textContent = s.otetsuki;
+    $('#hudScore').textContent = s.score.toLocaleString();
+    $('#hudLeft').textContent = s.field.filter((c) => !c.taken).length;
+    $('#hudCombo').textContent = s.combo >= 2 ? s.combo + '枚 連取り！' : '';
+    $('#hudCombo').classList.toggle('on', s.combo >= 2);
+    $('#oppPanel').hidden = s.mode !== 'taisen';
+  }
+
+  function renderRace() {
+    const bar = $('#raceBar');
+    const label = $('#raceLabel');
+    if (s.timed) {
+      const ratio = Math.max(0, s.timeLeft / s.timeMax);
+      bar.style.transform = 'scaleX(' + ratio + ')';
+      bar.classList.toggle('warning', s.timeLeft <= 10);
+      label.textContent = '残り ' + Math.ceil(Math.max(0, s.timeLeft)) + ' 秒';
+      return;
+    }
+    // 対戦では「相手が取りにいくまで」のバーになる
+    if (!s.target || !s.cpuAt) {
+      bar.style.transform = 'scaleX(0)';
+      label.textContent = '';
+      return;
+    }
+    const now = performance.now();
+    const ratio = Math.max(0, (s.cpuAt - now) / (s.cpuAt - s.readAt));
+    bar.style.transform = 'scaleX(' + ratio + ')';
+    bar.classList.toggle('warning', ratio < 0.34);
+    label.textContent = OPPONENTS[s.opp].icon + ' ' + OPPONENTS[s.opp].label + ' が狙っています';
+  }
+
+  /** 読み札（見台の上の札）を描く */
+  function renderYomi() {
+    const box = $('#yomiBody');
+    const hint = $('#yomiHint');
+    box.innerHTML = '';
+    hint.textContent = '';
+    hint.classList.remove('on');
+
+    const card = s.target;
+    if (!card) return;
+    const style = readStyleOf(card);
+
+    if (style === 'en') {
+      // 英語読み：音だけが頼り
+      const orb = el('button', 'yomi-orb', '🔊');
+      orb.type = 'button';
+      orb.title = 'もう一度聞く';
+      orb.addEventListener('click', (e) => { e.stopPropagation(); replay(); });
+      box.appendChild(orb);
+      box.appendChild(el('div', 'yomi-sub', '耳をすませて…（タップ / R キーでもう一度）'));
+    } else {
+      // 日本語読み：読み札の文字が見える
+      const t = el('div', 'yomi-ja', card.word.ja);
+      box.appendChild(t);
+      const orb = el('button', 'yomi-orb small', '🔊');
+      orb.type = 'button';
+      orb.title = 'もう一度読む';
+      orb.addEventListener('click', (e) => { e.stopPropagation(); replay(); });
+      box.appendChild(orb);
+    }
+    $('#yomiLabel').textContent = style === 'en' ? '読み札（英語）' : '読み札（日本語）';
+  }
+
+  /** 読み札を読み上げる */
+  function speakRead() {
+    const card = s.target;
+    if (!card) return;
+    if (readStyleOf(card) === 'en') {
+      Speech.say(card.word.en);
+    } else if (Speech.hasJa()) {
+      Speech.say(card.word.ja, { lang: 'ja', rate: 1 });
+    }
+  }
+
+  function replay() {
+    speakRead();
+    const orb = document.querySelector('.yomi-orb');
+    if (orb) {
+      orb.classList.remove('ring');
+      void orb.offsetWidth; // アニメーションを再生し直す
+      orb.classList.add('ring');
+    }
+  }
+
+  /** 決まり字ヒント（頭の1文字を教える） */
+  function showHint() {
+    if (!s || !s.running || !s.target) return;
+    s.hinted = true;
+    const card = s.target;
+    const text = card.face === 'ja' ? card.word.ja : card.word.en;
+    const hint = $('#yomiHint');
+    hint.textContent = '決まり字 「' + text.slice(0, 1) + '」…';
+    hint.classList.add('on');
+  }
+
+  function popup(text, cls) {
+    const pop = $('#popup');
+    pop.textContent = text;
+    pop.className = 'popup ' + (cls || '');
+    void pop.offsetWidth;
+    pop.classList.add('show');
+    clearTimeout(pop._t);
+    pop._t = setTimeout(() => pop.classList.remove('show'), 800);
+  }
+
+  /* ---------- 場をつくる ---------- */
+
+  function makeCard(word, slot) {
+    const card = { word, face: faceFor(s.style), taken: false, slot };
+    const node = el('button', 'fuda');
+    node.type = 'button';
+    node.style.setProperty('--rot', (Math.random() * 3 - 1.5).toFixed(2) + 'deg');
+    node.addEventListener('click', () => tap(card));
+    card.node = node;
+    paintCard(card);
+    return card;
+  }
+
+  function paintCard(card) {
+    card.node.className = 'fuda fuda-' + card.face + ' deal';
+    card.node.textContent = card.face === 'ja' ? card.word.ja : card.word.en;
+    card.node.disabled = false;
+    setTimeout(() => card.node.classList.remove('deal'), 400);
+  }
+
+  /* ---------- 読み ---------- */
+
+  function nextRead() {
+    if (!s || !s.running) return;
+    const live = s.field.filter((c) => !c.taken);
+    if (!live.length) { end(s.mode === 'taisen' ? 'finish' : 'complete'); return; }
+
+    s.target = live[Math.floor(Math.random() * live.length)];
+    s.reads++;
+    s.readAt = performance.now();
+    s.hinted = false;
+    s.locked = false;
+    s.cpuAt = null;
+
+    renderYomi();
+    speakRead();
+
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(showHint, HINT_DELAY);
+
+    if (s.mode === 'taisen') {
+      const o = OPPONENTS[s.opp];
+      const wait = o.min + Math.random() * (o.max - o.min);
+      s.cpuAt = s.readAt + wait;
+      clearTimeout(cpuTimer);
+      cpuTimer = setTimeout(cpuTake, wait);
+    }
+  }
+
+  function scheduleNext() {
+    clearTimeout(nextTimer);
+    nextTimer = setTimeout(() => { if (s && s.running) nextRead(); }, NEXT_DELAY);
+  }
+
+  /* ---------- 取る ---------- */
+
+  function tap(card) {
+    if (!s || !s.running || s.locked || card.taken || !s.target) return;
+    if (card === s.target) playerTake(card);
+    else otetsuki(card);
+  }
+
+  function playerTake(card) {
+    s.locked = true;
+    clearTimeout(cpuTimer);
+    clearTimeout(hintTimer);
+
+    const reaction = (performance.now() - s.readAt) / 1000;
+    if (s.bestReaction == null || reaction < s.bestReaction) s.bestReaction = reaction;
+
+    s.mine++;
     s.combo++;
     s.maxCombo = Math.max(s.maxCombo, s.combo);
+
+    // 早く取るほど高得点。連取りで倍率がかかる。
+    const speedBonus = Math.max(0, Math.round((3.5 - reaction) * 60));
     const mult = 1 + Math.min(s.combo - 1, 10) * 0.1;
-    const gain = Math.round(base * mult);
+    const gain = Math.round((200 + speedBonus) * mult);
     s.score += gain;
-    s.correct++;
-    s.timeLeft = Math.min(s.timeMax, s.timeLeft + (opts.bonusTime || 0));
-    recordWord(word, true);
+    if (s.timed) s.timeLeft = Math.min(s.timeMax, s.timeLeft + 2);
 
-    Sfx.correct(s.combo);
-    if (Settings.get('autoSpeak')) Speech.say(word.en);
-    if (opts.node) burst(opts.node);
-    if (s.combo >= 3) popCombo(s.combo + ' COMBO!  +' + gain, 'good');
-    else popCombo('+' + gain, 'good');
+    recordWord(card.word, true);
+    takeCard(card, 'mine');
+    Sfx.take(s.combo);
+    if (Settings.get('autoSpeak')) Speech.say(card.word.en);
+    popup(s.combo >= 3 ? s.combo + '枚 連取り！ +' + gain : '取った！ +' + gain, 'good');
+    revealYomi(card, reaction);
     renderHud();
+    scheduleNext();
   }
 
-  /** 不正解時の共通処理。ハートを1つ失い、コンボが切れる。 */
-  function onWrong(word, opts = {}) {
+  function cpuTake() {
+    if (!s || !s.running || !s.target) return;
+    const card = s.target;
+    s.locked = true;
+    clearTimeout(hintTimer);
+    s.theirs++;
     s.combo = 0;
-    s.wrong++;
-    s.hearts--;
-    if (word) recordWord(word, false);
-    if (opts.penaltyTime) s.timeLeft = Math.max(0, s.timeLeft - opts.penaltyTime);
-    Sfx.wrong();
-    flash('shake-screen');
-    popCombo('MISS', 'bad');
+    recordWord(card.word, false);
+    takeCard(card, 'theirs');
+    Sfx.stolen();
+    if (Settings.get('autoSpeak')) Speech.say(card.word.en);
+    popup('取られた…', 'bad');
+    revealYomi(card, null);
     renderHud();
-    if (s.hearts <= 0) end('hearts');
+    scheduleNext();
   }
 
-  /* ---------- タイマーループ ---------- */
+  /** お手つき：持ち札を1枚相手に渡し、少しのあいだ手が止まる */
+  function otetsuki(card) {
+    s.otetsuki++;
+    s.combo = 0;
+    s.score = Math.max(0, s.score - 80);
+    recordWord(card.word, false);
+
+    if (s.mode === 'taisen') {
+      if (s.mine > 0) { s.mine--; s.theirs++; }
+      else s.theirs++;
+    } else {
+      s.timeLeft = Math.max(0, s.timeLeft - 3);
+    }
+
+    card.node.classList.add('otetsuki');
+    setTimeout(() => card.node.classList.remove('otetsuki'), 600);
+    Sfx.otetsuki();
+    popup('お手つき！', 'bad');
+    $('#screen-game').classList.add('shake-screen');
+    setTimeout(() => $('#screen-game').classList.remove('shake-screen'), 280);
+
+    // お手つきのあいだは取れない
+    s.locked = true;
+    clearTimeout(freezeTimer);
+    freezeTimer = setTimeout(() => { if (s && s.running) s.locked = false; }, OTETSUKI_FREEZE);
+    renderHud();
+  }
+
+  /** 取られた札を場から外す */
+  function takeCard(card, to) {
+    card.taken = true;
+    card.node.disabled = true;
+    card.node.classList.add(to === 'mine' ? 'to-mine' : 'to-theirs');
+
+    setTimeout(() => {
+      if (!s) return;
+      const refill = s.mode === 'hitori' && s.deck.length;
+      if (refill) {
+        // ひとりかるたは札を補充して場を絶やさない
+        const word = s.deck.shift();
+        card.word = word;
+        card.face = faceFor(s.style);
+        card.taken = false;
+        paintCard(card);
+      } else {
+        card.node.classList.add('gone');
+      }
+      renderHud();
+    }, 420);
+  }
+
+  /** 取ったあとに読み札の答えを見せる */
+  function revealYomi(card, reaction) {
+    const box = $('#yomiBody');
+    box.innerHTML = '';
+    const ans = el('div', 'yomi-answer');
+    ans.appendChild(el('span', 'ans-en', card.word.en));
+    ans.appendChild(el('span', 'ans-ja', card.word.ja));
+    box.appendChild(ans);
+    const hint = $('#yomiHint');
+    hint.classList.add('on');
+    hint.textContent = reaction != null ? reaction.toFixed(2) + ' 秒で取りました' : '相手に取られました';
+  }
+
+  /* ---------- 進行 ---------- */
 
   function loop(ts) {
     if (!s || !s.running) return;
     if (!s._prev) s._prev = ts;
     const dt = (ts - s._prev) / 1000;
     s._prev = ts;
-    s.timeLeft -= dt;
 
-    const sec = Math.ceil(s.timeLeft);
-    if (sec !== s.lastTickSec) {
-      s.lastTickSec = sec;
-      if (sec <= 5 && sec > 0) Sfx.tick();
+    if (s.timed) {
+      s.timeLeft -= dt;
+      const sec = Math.ceil(s.timeLeft);
+      if (sec !== s.lastSec) {
+        s.lastSec = sec;
+        if (sec <= 5 && sec > 0) Sfx.tick();
+      }
+      if (s.timeLeft <= 0) {
+        s.timeLeft = 0;
+        renderRace();
+        end('time');
+        return;
+      }
     }
-
-    if (s.timeLeft <= 0) {
-      s.timeLeft = 0;
-      renderTimer();
-      end('time');
-      return;
-    }
-    renderTimer();
+    renderRace();
     rafId = requestAnimationFrame(loop);
   }
 
-  /* ---------- 開始 / 終了 ---------- */
-
-  /**
-   * 出題する単語プールを作る。
-   * 苦手モードがONのときは、間違えた単語を優先して出題する。
-   */
-  function buildPool(level) {
-    const base = VOCAB[level].words;
-    if (!Settings.get('weakMode')) return shuffle(base);
-
-    const weak = Store.weakWords().map((w) => ({ en: w.en, ja: w.ja }));
-    const MIN = 12; // 4択やペアを作るのに足りるだけの語数は確保する
-    if (weak.length >= MIN) return shuffle(weak);
-    // 苦手な語を先頭にそろえ、足りない分だけ通常の単語で埋める
-    const fill = shuffle(base.filter((b) => !weak.some((w) => w.en === b.en)));
-    return shuffle(weak).concat(fill.slice(0, MIN - weak.length));
-  }
-
-  function start(level, mode) {
-    stopLoop();
-    s = newSession(level, mode);
-    s.startedAt = Date.now();
-    impl = MODE_IMPL[mode];
-
-    $('#hudModeLabel').textContent = MODES[mode].icon + ' ' + MODES[mode].label;
-    $('#hudLevelLabel').textContent = VOCAB[level].icon + ' ' + VOCAB[level].label;
-    const board = $('#board');
-    board.className = 'board board-' + mode;
-    board.innerHTML = '';
-
-    renderHud();
-    renderTimer();
-
-    // init の途中で出題が走るモードがあるので、先に running を立てておく
-    s.running = true;
-    s._prev = 0;
-    impl.init(board, buildPool(level));
-    rafId = requestAnimationFrame(loop);
-  }
-
-  function stopLoop() {
+  function clearTimers() {
+    [hintTimer, cpuTimer, nextTimer, freezeTimer].forEach(clearTimeout);
+    hintTimer = cpuTimer = nextTimer = freezeTimer = null;
     if (rafId) cancelAnimationFrame(rafId);
     rafId = null;
+  }
+
+  /** 序歌のかわりの「三・二・一」 */
+  function countdown(done) {
+    const ov = $('#countdown');
+    const seq = ['三', '二', '一', 'はじめ！'];
+    ov.hidden = false;
+    let i = 0;
+    (function step() {
+      if (!s) return;
+      ov.textContent = seq[i];
+      ov.className = 'countdown show' + (i === 3 ? ' go' : '');
+      Sfx.hyoshigi();
+      i++;
+      if (i < seq.length) setTimeout(step, 700);
+      else setTimeout(() => { ov.hidden = true; done(); }, 620);
+    })();
+  }
+
+  function start(cfg) {
+    clearTimers();
+    const pool = buildPool(cfg.level);
+    const size = MODES[cfg.mode].cards;
+
+    s = {
+      level: cfg.level,
+      mode: cfg.mode,
+      style: cfg.style,
+      opp: cfg.opp,
+      deck: pool.slice(size),
+      field: [],
+      target: null,
+      mine: 0, theirs: 0, otetsuki: 0,
+      score: 0, combo: 0, maxCombo: 0,
+      reads: 0, bestReaction: null,
+      timed: cfg.mode === 'hitori',
+      timeMax: MODES[cfg.mode].time || 0,
+      timeLeft: MODES[cfg.mode].time || 0,
+      running: false, locked: true,
+      learned: [], learnedIndex: {},
+      startedAt: Date.now(),
+      _prev: 0, lastSec: null
+    };
+
+    $('#hudLevelLabel').textContent = VOCAB[cfg.level].icon + ' ' + VOCAB[cfg.level].label;
+    $('#hudModeLabel').textContent = MODES[cfg.mode].icon + ' ' + MODES[cfg.mode].label;
+    $('#oppName').textContent = OPPONENTS[cfg.opp].icon + ' ' + OPPONENTS[cfg.opp].label;
+    $('#yomiLabel').textContent = '読み札';
+    $('#yomiBody').innerHTML = '';
+    $('#yomiHint').textContent = '';
+
+    fieldEl = $('#field');
+    fieldEl.innerHTML = '';
+    pool.slice(0, size).forEach((word, i) => {
+      const card = makeCard(word, i);
+      s.field.push(card);
+      fieldEl.appendChild(card.node);
+    });
+
+    renderHud();
+    renderRace();
+
+    countdown(() => {
+      if (!s) return;
+      s.running = true;
+      s._prev = 0;
+      rafId = requestAnimationFrame(loop);
+      nextRead();
+    });
   }
 
   function end(reason) {
     if (!s || !s.running) return;
     s.running = false;
-    stopLoop();
+    s.locked = true;
+    clearTimers();
     Speech.stop();
-    if (impl && impl.cleanup) impl.cleanup();
 
-    if (reason === 'complete') {
-      s.cleared = true;
-      const timeBonus = Math.round(s.timeLeft * 20);
-      s.score += timeBonus + 500;
-      Sfx.clear();
+    let outcome = null;
+    if (s.mode === 'taisen') {
+      outcome = s.mine > s.theirs ? 'win' : s.mine < s.theirs ? 'lose' : 'draw';
+      if (outcome === 'win') { s.score += 800; Sfx.win(); }
+      else if (outcome === 'draw') { s.score += 300; Sfx.hyoshigi(); }
+      else Sfx.lose();
+    } else if (reason === 'complete') {
+      s.score += 500;
+      Sfx.win();
     } else {
-      Sfx.gameover();
+      Sfx.hyoshigi();
     }
 
     const result = {
-      level: s.level,
-      mode: s.mode,
-      score: s.score,
-      maxCombo: s.maxCombo,
-      correct: s.correct,
-      wrong: s.wrong,
-      cleared: s.cleared,
-      reason,
-      stage: s.stage,
+      level: s.level, mode: s.mode, style: s.style, opp: s.opp,
+      score: s.score, mine: s.mine, theirs: s.theirs, otetsuki: s.otetsuki,
+      maxCombo: s.maxCombo, bestReaction: s.bestReaction,
+      outcome, reason,
       learned: s.learned.slice(),
       seconds: Math.round((Date.now() - s.startedAt) / 1000)
     };
-    setTimeout(() => onEnd(result), reason === 'complete' ? 700 : 450);
+    setTimeout(() => onEnd(result), 800);
   }
 
   function quit() {
     if (!s) return;
     s.running = false;
-    stopLoop();
+    clearTimers();
     Speech.stop();
-    if (impl && impl.cleanup) impl.cleanup();
+    $('#countdown').hidden = true; // 数えている途中でやめたとき用
     s = null;
   }
 
-  /* =======================================================
-   * モード1: マッチング
-   * 左に日本語、右に英語。対応するカードを選んで消していく。
-   * ======================================================= */
-  const MatchMode = (() => {
-    const SLOTS = 5;       // 開始時のペア数
-    const MAX_SLOTS = 7;   // ステージが上がると増える上限
-    const STAGE_EVERY = 8; // 何ペア消すごとにステージアップするか
-    let slots = [];        // { word, jaNode, enNode }
-    let deck = [];
-    let listJa = null, listEn = null;
-    let selJa = null, selEn = null, lock = false;
-
-    function randomOrder() { return Math.floor(Math.random() * 10000); }
-
-    function fillSlot(i, word) {
-      const sl = slots[i];
-      sl.word = word;
-      const o1 = randomOrder(), o2 = randomOrder();
-      sl.jaNode.style.order = o1;
-      sl.enNode.style.order = o2;
-      [sl.jaNode, sl.enNode].forEach((n) => {
-        n.classList.remove('matched', 'gone', 'sel', 'miss');
-        n.disabled = false;
-      });
-      if (!word) {
-        sl.jaNode.classList.add('gone');
-        sl.enNode.classList.add('gone');
-        sl.jaNode.disabled = true;
-        sl.enNode.disabled = true;
-        return;
-      }
-      sl.jaNode.textContent = word.ja;
-      sl.enNode.textContent = word.en;
-      sl.jaNode.classList.add('deal');
-      sl.enNode.classList.add('deal');
-      setTimeout(() => {
-        sl.jaNode.classList.remove('deal');
-        sl.enNode.classList.remove('deal');
-      }, 350);
-    }
-
-    function clearSel() {
-      slots.forEach((sl) => {
-        sl.jaNode.classList.remove('sel');
-        sl.enNode.classList.remove('sel');
-      });
-      selJa = selEn = null;
-    }
-
-    function pick(side, i) {
-      if (lock || !s || !s.running || !slots[i].word) return;
-      Sfx.tap();
-      if (side === 'ja') selJa = i; else selEn = i;
-      slots.forEach((sl, k) => {
-        sl.jaNode.classList.toggle('sel', k === selJa);
-        sl.enNode.classList.toggle('sel', k === selEn);
-      });
-      if (selJa != null && selEn != null) judge();
-    }
-
-    /** カードを1ペア分追加する（ステージアップ時） */
-    function addSlot() {
-      const i = slots.length;
-      const { jaNode, enNode } = makeCards(i);
-      listJa.appendChild(jaNode);
-      listEn.appendChild(enNode);
-      slots.push({ word: null, jaNode, enNode });
-      fillSlot(i, deck.shift() || null);
-    }
-
-    function judge() {
-      const a = selJa, b = selEn;
-      if (a === b) {
-        const word = slots[a].word;
-        lock = true;
-        slots[a].jaNode.classList.add('matched');
-        slots[a].enNode.classList.add('matched');
-        onCorrect(word, { base: 100, bonusTime: 1.5, node: slots[a].enNode });
-        clearSel();
-        setTimeout(() => {
-          if (!s || !s.running) return;
-          const next = deck.shift();
-          fillSlot(a, next || null);
-          lock = false;
-          if (!next && slots.every((sl) => !sl.word)) {
-            end('complete');
-            return;
-          }
-          // 一定数消すごとにステージアップ。場のカードが増えて難しくなる。
-          if (s.correct % STAGE_EVERY === 0 && deck.length) {
-            s.stage++;
-            popCombo('STAGE ' + s.stage + '!', 'good');
-            Sfx.clear();
-            renderHud();
-            if (slots.length < MAX_SLOTS) addSlot();
-          }
-        }, 380);
-      } else {
-        const jaNode = slots[a].jaNode, enNode = slots[b].enNode;
-        jaNode.classList.add('miss');
-        enNode.classList.add('miss');
-        // 演出中は入力を止める（選択が残ったまま次のタップを拾って誤判定するのを防ぐ）
-        lock = true;
-        onWrong(slots[a].word);
-        // 間違えた組み合わせの英語側も「まだ覚えていない」として記録する
-        recordWord(slots[b].word, false);
-        setTimeout(() => {
-          jaNode.classList.remove('miss');
-          enNode.classList.remove('miss');
-          clearSel();
-          lock = false;
-        }, 420);
-      }
-    }
-
-    function makeCards(i) {
-      const jaNode = el('button', 'card card-ja');
-      const enNode = el('button', 'card card-en');
-      jaNode.type = enNode.type = 'button';
-      jaNode.addEventListener('click', () => pick('ja', i));
-      enNode.addEventListener('click', () => {
-        // 英語カードはいつでも音を確認できる
-        const word = slots[i].word;
-        pick('en', i);
-        if (!Settings.get('autoSpeak') && word) Speech.say(word.en);
-      });
-      return { jaNode, enNode };
-    }
-
-    return {
-      init(board, words) {
-        deck = words.slice();
-        slots = [];
-        selJa = selEn = null;
-        lock = false;
-
-        const wrap = el('div', 'match-wrap');
-        const colJa = el('div', 'match-col');
-        const colEn = el('div', 'match-col');
-        colJa.appendChild(el('div', 'col-title', '日本語'));
-        colEn.appendChild(el('div', 'col-title', 'English'));
-        listJa = el('div', 'col-list');
-        listEn = el('div', 'col-list');
-        colJa.appendChild(listJa);
-        colEn.appendChild(listEn);
-        wrap.append(colJa, colEn);
-        board.appendChild(wrap);
-
-        for (let i = 0; i < SLOTS; i++) {
-          const { jaNode, enNode } = makeCards(i);
-          listJa.appendChild(jaNode);
-          listEn.appendChild(enNode);
-          slots.push({ word: null, jaNode, enNode });
-        }
-        for (let i = 0; i < SLOTS; i++) fillSlot(i, deck.shift() || null);
-      },
-      cleanup() { lock = true; }
-    };
-  })();
-
-  /* =======================================================
-   * モード2: 神経衰弱
-   * 裏返しのカードから日本語と英語のペアを探す。
-   * ======================================================= */
-  const MemoryMode = (() => {
-    const PAIRS = 6;
-    let deck = [];
-    let first = null, lock = false, remaining = 0, boardEl = null;
-
-    function deal() {
-      boardEl.innerHTML = '';
-      const use = deck.splice(0, PAIRS);
-      remaining = use.length;
-      if (!use.length) { end('complete'); return; }
-
-      const cards = [];
-      use.forEach((w) => {
-        cards.push({ w, face: 'ja', text: w.ja });
-        cards.push({ w, face: 'en', text: w.en });
-      });
-
-      const grid = el('div', 'memory-grid');
-      shuffle(cards).forEach((c) => {
-        const btn = el('button', 'mcard');
-        btn.type = 'button';
-        const inner = el('span', 'mcard-inner');
-        const front = el('span', 'mface mfront', '?');
-        const back = el('span', 'mface mback ' + (c.face === 'en' ? 'is-en' : 'is-ja'), c.text);
-        inner.append(front, back);
-        btn.appendChild(inner);
-        btn.addEventListener('click', () => flip(btn, c));
-        grid.appendChild(btn);
-      });
-      boardEl.appendChild(grid);
-    }
-
-    function flip(btn, c) {
-      if (lock || btn.classList.contains('open') || btn.classList.contains('done')) return;
-      btn.classList.add('open');
-      Sfx.flip();
-      if (c.face === 'en') Speech.say(c.w.en);
-
-      if (!first) { first = { btn, c }; return; }
-      if (first.btn === btn) return;
-
-      const second = { btn, c };
-      lock = true;
-
-      if (first.c.w.en === second.c.w.en) {
-        const node = second.btn;
-        onCorrect(c.w, { base: 140, bonusTime: 2, node });
-        [first, second].forEach((x) => x.btn.classList.add('done'));
-        first = null;
-        lock = false;
-        remaining--;
-        if (remaining === 0) {
-          setTimeout(() => {
-            if (!s || !s.running) return;
-            if (deck.length) {
-              s.stage++;
-              s.timeLeft = Math.min(s.timeMax, s.timeLeft + 12);
-              popCombo('STAGE ' + s.stage + '!', 'good');
-              Sfx.clear();
-              renderHud();
-              deal();
-            } else {
-              end('complete');
-            }
-          }, 620);
-        }
-      } else {
-        onWrong(first.c.w);
-        recordWord(second.c.w, false);
-        const a = first, b = second;
-        first = null;
-        setTimeout(() => {
-          a.btn.classList.remove('open');
-          b.btn.classList.remove('open');
-          lock = false;
-        }, 750);
-      }
-    }
-
-    return {
-      init(board, words) {
-        boardEl = board;
-        deck = words.slice(0, PAIRS * 4); // 最大4ステージ
-        first = null;
-        lock = false;
-        deal();
-      },
-      cleanup() { lock = true; }
-    };
-  })();
-
-  /* =======================================================
-   * モード3: スピードクイズ
-   * 出題された語の意味を4択で答える。日本語→英語 と 英語→日本語 が混ざる。
-   * ======================================================= */
-  const QuizMode = (() => {
-    let deck = [], pool = [], boardEl = null, current = null, lock = false, qno = 0;
-
-    function nextQuestion() {
-      if (!s || !s.running) return;
-      if (!deck.length) deck = shuffle(pool);
-      const word = deck.shift();
-      const jaToEn = Math.random() < 0.65;
-      qno++;
-
-      const others = shuffle(pool.filter((w) => w.en !== word.en)).slice(0, 3);
-      const options = shuffle([word].concat(others));
-      current = { word, jaToEn, options };
-
-      boardEl.innerHTML = '';
-      const wrap = el('div', 'quiz');
-      wrap.appendChild(el('div', 'quiz-no', 'Q' + qno));
-      wrap.appendChild(el('div', 'quiz-dir', jaToEn ? '日本語 ➜ English' : 'English ➜ 日本語'));
-
-      const prompt = el('div', 'quiz-prompt' + (jaToEn ? '' : ' en'), jaToEn ? word.ja : word.en);
-      wrap.appendChild(prompt);
-
-      if (!jaToEn) {
-        // 英語が問題文のときは聞き取りの練習になるよう自動で読み上げ
-        const sp = el('button', 'speak-btn', '🔊 聞く');
-        sp.type = 'button';
-        sp.addEventListener('click', (e) => { e.stopPropagation(); Speech.say(word.en); });
-        wrap.appendChild(sp);
-        if (Settings.get('autoSpeak')) Speech.say(word.en);
-      }
-
-      const opts = el('div', 'quiz-options');
-      options.forEach((o, i) => {
-        const b = el('button', 'opt');
-        b.type = 'button';
-        b.innerHTML = '<span class="opt-key">' + (i + 1) + '</span>';
-        b.appendChild(el('span', 'opt-text', jaToEn ? o.en : o.ja));
-        b.addEventListener('click', () => answer(o, b));
-        opts.appendChild(b);
-      });
-      wrap.appendChild(opts);
-      boardEl.appendChild(wrap);
-      lock = false;
-    }
-
-    function answer(choice, btn) {
-      if (lock || !current) return;
-      lock = true;
-      const { word } = current;
-      if (choice.en === word.en) {
-        btn.classList.add('ok');
-        onCorrect(word, { base: 120, bonusTime: 1.5, node: btn });
-        setTimeout(nextQuestion, 620);
-      } else {
-        btn.classList.add('ng');
-        // 正解の選択肢を光らせて見せる
-        [...boardEl.querySelectorAll('.opt')].forEach((b, i) => {
-          if (current.options[i].en === word.en) b.classList.add('ok');
-        });
-        onWrong(word, { penaltyTime: 3 });
-        if (Settings.get('autoSpeak')) Speech.say(word.en);
-        setTimeout(() => { if (s && s.running) nextQuestion(); }, 1100);
-      }
-    }
-
-    function onKey(e) {
-      const n = parseInt(e.key, 10);
-      if (n >= 1 && n <= 4) {
-        const btns = boardEl.querySelectorAll('.opt');
-        if (btns[n - 1]) btns[n - 1].click();
-      }
-    }
-
-    return {
-      init(board, words) {
-        boardEl = board;
-        pool = words.slice();
-        deck = shuffle(pool);
-        qno = 0;
-        document.addEventListener('keydown', onKey);
-        nextQuestion();
-      },
-      cleanup() {
-        lock = true;
-        document.removeEventListener('keydown', onKey);
-      }
-    };
-  })();
-
-  /* =======================================================
-   * モード4: リスニング
-   * 英単語の発音だけを頼りに、意味（日本語）を4択で答える。
-   * ======================================================= */
-  const ListenMode = (() => {
-    let pool = [], deck = [], boardEl = null, current = null, lock = false, qno = 0, orb = null;
-
-    function replay() {
-      if (!current) return;
-      Speech.say(current.word.en);
-      if (orb) {
-        orb.classList.remove('ring');
-        void orb.offsetWidth; // アニメーションを再生し直す
-        orb.classList.add('ring');
-      }
-    }
-
-    function nextQuestion() {
-      if (!s || !s.running) return;
-      if (!deck.length) deck = shuffle(pool);
-      const word = deck.shift();
-      qno++;
-
-      const others = shuffle(pool.filter((w) => w.en !== word.en)).slice(0, 3);
-      const options = shuffle([word].concat(others));
-      current = { word, options };
-
-      boardEl.innerHTML = '';
-      const wrap = el('div', 'quiz listen');
-      wrap.appendChild(el('div', 'quiz-no', 'Q' + qno));
-      wrap.appendChild(el('div', 'quiz-dir', '🎧 発音を聞いて意味をえらぶ'));
-
-      orb = el('button', 'listen-orb', '🔊');
-      orb.type = 'button';
-      orb.title = 'もう一度聞く';
-      orb.addEventListener('click', replay);
-      wrap.appendChild(orb);
-      wrap.appendChild(el('div', 'listen-hint', 'タップ（または R キー）でもう一度'));
-
-      const spell = el('div', 'listen-spell', '? ? ? ? ?');
-      wrap.appendChild(spell);
-
-      const opts = el('div', 'quiz-options');
-      options.forEach((o, i) => {
-        const b = el('button', 'opt');
-        b.type = 'button';
-        b.innerHTML = '<span class="opt-key">' + (i + 1) + '</span>';
-        b.appendChild(el('span', 'opt-text', o.ja));
-        b.addEventListener('click', () => answer(o, b, spell));
-        opts.appendChild(b);
-      });
-      wrap.appendChild(opts);
-      boardEl.appendChild(wrap);
-
-      lock = false;
-      replay();
-    }
-
-    function answer(choice, btn, spell) {
-      if (lock || !current) return;
-      lock = true;
-      const { word } = current;
-      spell.textContent = word.en; // 答え合わせでつづりを見せる
-      spell.classList.add('revealed');
-
-      if (choice.en === word.en) {
-        btn.classList.add('ok');
-        onCorrect(word, { base: 150, bonusTime: 1.5, node: btn });
-        setTimeout(nextQuestion, 900);
-      } else {
-        btn.classList.add('ng');
-        [...boardEl.querySelectorAll('.opt')].forEach((b, i) => {
-          if (current.options[i].en === word.en) b.classList.add('ok');
-        });
-        onWrong(word, { penaltyTime: 3 });
-        Speech.say(word.en);
-        setTimeout(() => { if (s && s.running) nextQuestion(); }, 1400);
-      }
-    }
-
-    function onKey(e) {
-      if (e.key === 'r' || e.key === 'R') { replay(); return; }
-      const n = parseInt(e.key, 10);
-      if (n >= 1 && n <= 4) {
-        const btns = boardEl.querySelectorAll('.opt');
-        if (btns[n - 1]) btns[n - 1].click();
-      }
-    }
-
-    return {
-      init(board, words) {
-        boardEl = board;
-        pool = words.slice();
-        deck = shuffle(pool);
-        qno = 0;
-        document.addEventListener('keydown', onKey);
-        nextQuestion();
-      },
-      cleanup() {
-        lock = true;
-        current = null;
-        document.removeEventListener('keydown', onKey);
-      }
-    };
-  })();
-
-  const MODE_IMPL = { match: MatchMode, memory: MemoryMode, quiz: QuizMode, listen: ListenMode };
+  document.addEventListener('keydown', (e) => {
+    if (!s || !s.running) return;
+    if (e.key === 'r' || e.key === 'R') replay();
+  });
 
   return {
     start,
     quit,
     end,
+    replay,
     setOnEnd(fn) { onEnd = fn; },
     shuffle
   };

@@ -1,36 +1,40 @@
 /**
- * 画面遷移と UI の組み立て。
+ * 画面遷移と選択UI。
  */
 (() => {
   const $ = (sel) => document.querySelector(sel);
 
-  let selLevel = 'es';
-  let selMode = 'match';
+  const sel = { level: 'es', mode: 'taisen', style: 'mix', opp: 'town' };
 
-  /* ---------- 画面切り替え ---------- */
   function show(id) {
     document.querySelectorAll('.screen').forEach((el) => el.classList.remove('active'));
     $('#' + id).classList.add('active');
     window.scrollTo(0, 0);
   }
 
-  /* ---------- ホーム ---------- */
+  /** 選択カードを1枚つくる */
+  function card(key, { icon, label, desc, meta, disabled }) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'select-card' + (disabled ? ' disabled' : '');
+    b.dataset.key = key;
+    b.disabled = !!disabled;
+    b.innerHTML =
+      '<span class="sc-icon">' + icon + '</span>' +
+      '<span class="sc-label">' + label + '</span>' +
+      '<span class="sc-desc">' + desc + '</span>' +
+      '<span class="sc-meta">' + meta + '</span>';
+    return b;
+  }
+
   function buildSelectors() {
     const lv = $('#levelSelect');
     lv.innerHTML = '';
     LEVEL_ORDER.forEach((key) => {
       const v = VOCAB[key];
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'select-card';
-      b.dataset.key = key;
+      const b = card(key, { icon: v.icon, label: v.label, desc: v.desc, meta: v.words.length + ' 語' });
       b.style.setProperty('--accent', v.color);
-      b.innerHTML =
-        '<span class="sc-icon">' + v.icon + '</span>' +
-        '<span class="sc-label">' + v.label + '</span>' +
-        '<span class="sc-desc">' + v.desc + '</span>' +
-        '<span class="sc-meta">' + v.words.length + ' words</span>';
-      b.addEventListener('click', () => { selLevel = key; Sfx.tap(); syncSelection(); });
+      b.addEventListener('click', () => { sel.level = key; Sfx.tap(); sync(); });
       lv.appendChild(b);
     });
 
@@ -38,29 +42,73 @@
     md.innerHTML = '';
     MODE_ORDER.forEach((key) => {
       const m = MODES[key];
-      const unusable = m.needsSpeech && !Speech.supported;
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'select-card' + (unusable ? ' disabled' : '');
-      b.dataset.key = key;
-      b.disabled = unusable;
-      b.innerHTML =
-        '<span class="sc-icon">' + m.icon + '</span>' +
-        '<span class="sc-label">' + m.label + '</span>' +
-        '<span class="sc-desc">' + m.desc + '</span>' +
-        '<span class="sc-meta">' + (unusable ? 'このブラウザでは使えません' : m.time + '秒') + '</span>';
-      b.addEventListener('click', () => { selMode = key; Sfx.tap(); syncSelection(); });
+      const meta = key === 'taisen' ? m.cards + '枚勝負' : m.time + '秒';
+      const b = card(key, { icon: m.icon, label: m.label, desc: m.desc, meta });
+      b.addEventListener('click', () => { sel.mode = key; Sfx.tap(); sync(); });
       md.appendChild(b);
+    });
+
+    const st = $('#styleSelect');
+    st.innerHTML = '';
+    STYLE_ORDER.forEach((key) => {
+      const r = READ_STYLES[key];
+      const disabled = r.needsSpeech && !Speech.supported;
+      const b = card(key, {
+        icon: r.icon, label: r.label, desc: r.desc,
+        meta: disabled ? '音声が使えません' : '取り札は' + (key === 'ja' ? '英語' : key === 'en' ? '日本語' : '両方'),
+        disabled
+      });
+      b.addEventListener('click', () => { sel.style = key; Sfx.tap(); sync(); });
+      st.appendChild(b);
+    });
+
+    const op = $('#oppSelect');
+    op.innerHTML = '';
+    OPPONENT_ORDER.forEach((key) => {
+      const o = OPPONENTS[key];
+      const b = card(key, {
+        icon: o.icon, label: o.label,
+        desc: '読まれてから約' + (o.min / 1000).toFixed(1) + '〜' + (o.max / 1000).toFixed(1) + '秒で取る',
+        meta: '強さ ' + '★'.repeat(OPPONENT_ORDER.indexOf(key) + 1)
+      });
+      b.addEventListener('click', () => { sel.opp = key; Sfx.tap(); sync(); });
+      op.appendChild(b);
     });
   }
 
-  /* ---------- 苦手な単語 ---------- */
+  function sync() {
+    // 音声が使えないときは日本語読みに寄せる
+    if (READ_STYLES[sel.style].needsSpeech && !Speech.supported) sel.style = 'ja';
+
+    [['#levelSelect', 'level'], ['#modeSelect', 'mode'], ['#styleSelect', 'style'], ['#oppSelect', 'opp']]
+      .forEach(([id, key]) => {
+        $(id).querySelectorAll('.select-card').forEach((b) => {
+          b.classList.toggle('on', b.dataset.key === sel[key]);
+        });
+      });
+
+    $('#oppSection').hidden = sel.mode !== 'taisen';
+    $('#bestScore').textContent = Store.getBest(sel.level, sel.mode).toLocaleString();
+  }
+
+  function renderPlayer() {
+    const p = Store.playerLevel();
+    const d = Store.all();
+    const r = Store.record();
+    $('#playerLv').textContent = p.lv;
+    $('#playerXp').textContent = p.cur + ' / ' + p.need + ' XP';
+    $('#lvBarFill').style.width = Math.min(100, (p.cur / p.need) * 100) + '%';
+    $('#statRecord').textContent = r.win + '勝 ' + r.lose + '敗' + (r.draw ? ' ' + r.draw + '分' : '');
+    $('#statCorrect').textContent = d.totalCorrect;
+    $('#statWords').textContent = Object.keys(d.seen).length;
+  }
+
+  /* ---------- 苦手な札 ---------- */
   function renderWeak() {
     const weak = Store.weakWords();
-    const card = $('#weakCard');
-    card.hidden = weak.length === 0;
+    const box = $('#weakCard');
+    box.hidden = weak.length === 0;
     if (!weak.length) {
-      // 苦手がなくなったら苦手モードも自動でOFFにする
       if (Settings.get('weakMode')) Settings.set('weakMode', false);
       return;
     }
@@ -70,8 +118,8 @@
     const t = $('#weakToggle');
     t.classList.toggle('on', on);
     t.setAttribute('aria-pressed', String(on));
-    t.textContent = (on ? '✅ 苦手モード：ON' : '苦手モード：OFF');
-    card.classList.toggle('active', on);
+    t.textContent = on ? '✅ 苦手モード：ON' : '苦手モード：OFF';
+    box.classList.toggle('active', on);
 
     const list = $('#weakList');
     list.innerHTML = '';
@@ -93,34 +141,12 @@
     });
     if (weak.length > 20) {
       list.appendChild(Object.assign(document.createElement('p'), {
-        className: 'empty', textContent: 'ほか ' + (weak.length - 20) + ' 語'
+        className: 'empty', textContent: 'ほか ' + (weak.length - 20) + ' 枚'
       }));
     }
   }
 
-  function syncSelection() {
-    if (MODES[selMode].needsSpeech && !Speech.supported) selMode = 'match';
-    $('#levelSelect').querySelectorAll('.select-card').forEach((b) => {
-      b.classList.toggle('on', b.dataset.key === selLevel);
-    });
-    $('#modeSelect').querySelectorAll('.select-card').forEach((b) => {
-      b.classList.toggle('on', b.dataset.key === selMode);
-    });
-    $('#bestScore').textContent = Store.getBest(selLevel, selMode).toLocaleString();
-  }
-
-  function renderPlayer() {
-    const p = Store.playerLevel();
-    const d = Store.all();
-    $('#playerLv').textContent = p.lv;
-    $('#playerXp').textContent = p.cur + ' / ' + p.need + ' XP';
-    $('#lvBarFill').style.width = Math.min(100, (p.cur / p.need) * 100) + '%';
-    $('#statPlays').textContent = d.plays;
-    $('#statCorrect').textContent = d.totalCorrect;
-    $('#statWords').textContent = Object.keys(d.seen).length;
-  }
-
-  /* ---------- 設定トグル ---------- */
+  /* ---------- 設定 ---------- */
   const RATES = [
     { v: 0.7, label: '🐢 読む速さ：ゆっくり' },
     { v: 0.85, label: '🚶 読む速さ：ふつう' },
@@ -136,35 +162,22 @@
     t1.textContent = (sfx ? '🔔' : '🔕') + ' 効果音';
     t2.classList.toggle('on', sp);
     t2.setAttribute('aria-pressed', String(sp));
-    t2.textContent = (sp ? '🔊' : '🔇') + ' 自動発音';
+    t2.textContent = (sp ? '🔊' : '🔇') + ' 取ったら発音';
     const r = RATES.find((x) => Math.abs(x.v - Settings.get('rate')) < 0.01) || RATES[1];
     t3.textContent = r.label;
-  }
-
-  function bindWeak() {
-    $('#weakToggle').addEventListener('click', () => {
-      Settings.set('weakMode', !Settings.get('weakMode'));
-      Sfx.tap();
-      renderWeak();
-    });
-    $('#weakClear').addEventListener('click', () => {
-      if (!confirm('苦手な単語のリストを空にします。よろしいですか？')) return;
-      Store.clearWeak();
-      renderWeak();
-    });
   }
 
   function bindSettings() {
     $('#toggleSfx').addEventListener('click', () => {
       Settings.set('sfx', !Settings.get('sfx'));
       renderSettings();
-      Sfx.tap();
+      Sfx.hyoshigi();
     });
     $('#toggleSpeak').addEventListener('click', () => {
       const next = !Settings.get('autoSpeak');
       Settings.set('autoSpeak', next);
       renderSettings();
-      if (next) Speech.say('OK');
+      if (next) Speech.say('karuta');
     });
     $('#toggleRate').addEventListener('click', () => {
       const i = RATES.findIndex((x) => Math.abs(x.v - Settings.get('rate')) < 0.01);
@@ -173,57 +186,67 @@
       renderSettings();
       Speech.say('excellent', { rate: next.v });
     });
+    $('#weakToggle').addEventListener('click', () => {
+      Settings.set('weakMode', !Settings.get('weakMode'));
+      Sfx.tap();
+      renderWeak();
+    });
+    $('#weakClear').addEventListener('click', () => {
+      if (!confirm('苦手な札のリストを空にします。よろしいですか？')) return;
+      Store.clearWeak();
+      renderWeak();
+    });
   }
 
-  /* ---------- リザルト ---------- */
-  function rankOf(score, cleared) {
-    if (cleared && score >= 4000) return 'S';
-    if (score >= 3500) return 'S';
-    if (score >= 2200) return 'A';
-    if (score >= 1300) return 'B';
-    if (score >= 600) return 'C';
-    return 'D';
-  }
-
+  /* ---------- 結果 ---------- */
   function renderResult(r) {
-    const total = r.correct + r.wrong;
-    const acc = total ? Math.round((r.correct / total) * 100) : 0;
+    const isMatch = r.mode === 'taisen';
     const xp = Math.floor(r.score / 10);
 
-    $('#resultHeadline').textContent = r.cleared
-      ? 'ALL CLEAR!'
-      : r.reason === 'hearts' ? 'GAME OVER' : 'TIME UP!';
-    $('#resultHeadline').classList.toggle('clear', !!r.cleared);
+    $('#resultHeadline').textContent = isMatch ? '勝負あり' : (r.reason === 'complete' ? '札を取り切った！' : '時間まで');
 
-    const rank = rankOf(r.score, r.cleared);
-    const badge = $('#rankBadge');
-    badge.textContent = rank;
-    badge.dataset.rank = rank;
+    const out = $('#resultOutcome');
+    out.hidden = !isMatch;
+    if (isMatch) {
+      const label = { win: '勝ち', lose: '負け', draw: '引き分け' }[r.outcome];
+      out.textContent = label;
+      out.dataset.outcome = r.outcome;
+      Store.addMatch(r.outcome);
+    }
+
+    $('#resultTally').hidden = !isMatch;
+    $('#resultMine').textContent = r.mine;
+    $('#resultTheirs').textContent = r.theirs;
+    $('#resultOppName').textContent = OPPONENTS[r.opp].label;
+    if (!isMatch) {
+      // ひとりかるたは取った枚数だけを見せる
+      $('#resultHeadline').textContent += '  ' + r.mine + '枚';
+    }
 
     $('#resultScore').textContent = r.score.toLocaleString();
-    $('#resultCorrect').textContent = r.correct;
-    $('#resultWrong').textContent = r.wrong;
+    $('#resultOtetsuki').textContent = r.otetsuki;
+    $('#resultFast').textContent = r.bestReaction != null ? r.bestReaction.toFixed(2) + '秒' : '-';
     $('#resultCombo').textContent = r.maxCombo;
-    $('#resultAcc').textContent = acc + '%';
     $('#resultXp').textContent = '+' + xp;
+    $('#resultTime').textContent = r.seconds + '秒';
 
     const isNew = Store.setBest(r.level, r.mode, r.score);
     $('#newRecord').hidden = !isNew;
     $('#resultBest').textContent = Store.getBest(r.level, r.mode).toLocaleString();
-    Store.addResult(r);
+    Store.addResult({ score: r.score, correct: r.mine, learned: r.learned });
 
     const list = $('#wordList');
     list.innerHTML = '';
     if (!r.learned.length) {
       list.appendChild(Object.assign(document.createElement('p'), {
-        className: 'empty', textContent: 'まだ単語が出ていません。'
+        className: 'empty', textContent: '札が読まれませんでした。'
       }));
     }
     r.learned.forEach((w) => {
       const row = document.createElement('div');
       row.className = 'word-row' + (w.ok ? '' : ' ng');
       row.innerHTML =
-        '<span class="w-mark">' + (w.ok ? '✓' : '✗') + '</span>' +
+        '<span class="w-mark">' + (w.ok ? '取' : '逃') + '</span>' +
         '<span class="w-en">' + w.en + '</span>' +
         '<span class="w-ja">' + w.ja + '</span>';
       const b = document.createElement('button');
@@ -242,58 +265,50 @@
   }
 
   /* ---------- 起動 ---------- */
+  function begin() {
+    Sfx.unlock();
+    show('screen-game');
+    Karuta.start({ level: sel.level, mode: sel.mode, style: sel.style, opp: sel.opp });
+  }
+
   function init() {
     buildSelectors();
-    syncSelection();
+    sync();
     renderPlayer();
     renderWeak();
     renderSettings();
     bindSettings();
-    bindWeak();
 
     if (!Speech.supported) $('#speechWarn').hidden = false;
+    else if (!Speech.hasJa()) {
+      // 音声一覧は非同期で届くことがあるので、少し待ってから判定する
+      setTimeout(() => { $('#jaVoiceNote').hidden = Speech.hasJa(); }, 800);
+    }
 
-    $('#startBtn').addEventListener('click', () => {
-      Sfx.unlock();
-      Sfx.tap();
-      show('screen-game');
-      Game.start(selLevel, selMode);
-    });
-
-    $('#retryBtn').addEventListener('click', () => {
-      Sfx.tap();
-      show('screen-game');
-      Game.start(selLevel, selMode);
-    });
-
+    $('#startBtn').addEventListener('click', begin);
+    $('#retryBtn').addEventListener('click', begin);
     $('#homeBtn').addEventListener('click', () => {
       Sfx.tap();
-      syncSelection();
+      sync();
       renderPlayer();
       renderWeak();
       show('screen-home');
     });
-
     $('#quitBtn').addEventListener('click', () => {
-      Game.quit();
+      Karuta.quit();
       show('screen-home');
     });
-
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && $('#screen-game').classList.contains('active')) {
-        Game.quit();
+        Karuta.quit();
         show('screen-home');
       }
     });
 
-    Game.setOnEnd(renderResult);
-    // 初回タップで音声・効果音を有効化（モバイルの自動再生制限対策）
+    Karuta.setOnEnd(renderResult);
     document.addEventListener('pointerdown', () => Sfx.unlock(), { once: true });
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();

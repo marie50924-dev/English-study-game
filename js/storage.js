@@ -6,6 +6,7 @@ const Store = (() => {
   const KEY = 'eigo-match-v1';
   const DEFAULT = {
     settings: { sfx: true, autoSpeak: true, rate: 0.85, weakMode: false },
+    record: { win: 0, lose: 0, draw: 0 },   // かるた対戦の戦績
     best: {},        // "level:mode" -> スコア
     xp: 0,
     plays: 0,
@@ -42,6 +43,11 @@ const Store = (() => {
       if (score > (data.best[k] || 0)) { data.best[k] = score; save(); return true; }
       return false;
     },
+    addMatch(outcome) {
+      if (data.record[outcome] != null) { data.record[outcome] += 1; save(); }
+    },
+    record() { return data.record; },
+
     addResult(res) {
       data.xp += Math.floor(res.score / 10);
       data.plays += 1;

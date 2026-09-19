@@ -308,34 +308,44 @@ const VOCAB = {
   }
 };
 
-/** モード定義 */
+/** 遊び方（札の取り方） */
 const MODES = {
-  match: {
-    label: 'マッチング',
-    icon: '⚡',
-    desc: '日本語と英語をつないで消す！',
-    time: 75
+  taisen: {
+    label: 'かるた対戦',
+    icon: '🀄',
+    desc: '読み手の声を聞いて相手と札を取り合う十二枚勝負',
+    cards: 12
   },
-  memory: {
-    label: '神経衰弱',
-    icon: '🃏',
-    desc: '裏返してペアを当てる記憶ゲーム',
-    time: 90
-  },
-  quiz: {
-    label: 'スピードクイズ',
-    icon: '⏱️',
-    desc: '4択で次々こたえる連打バトル',
+  hitori: {
+    label: 'ひとりかるた',
+    icon: '⏳',
+    desc: '60秒で何枚取れるか。札はどんどん補充される',
+    cards: 12,
     time: 60
-  },
-  listen: {
-    label: 'リスニング',
-    icon: '🎧',
-    desc: '発音を聞いて意味を当てる',
-    time: 60,
-    needsSpeech: true
   }
 };
 
+/**
+ * 読み方。
+ * en … 英語を読み上げる → 場に並ぶ「日本語の取り札」を取る
+ * ja … 日本語を読む     → 場に並ぶ「英語の取り札」を取る
+ * mix … 札ごとに面が違い、読み方も札に合わせて変わる
+ */
+const READ_STYLES = {
+  mix: { label: 'ミックス', icon: '🎴', desc: '英語読みと日本語読みが混ざる', needsSpeech: true },
+  en:  { label: '英語読み', icon: '🎧', desc: '発音を聞いて日本語の札を取る', needsSpeech: true },
+  ja:  { label: '日本語読み', icon: '📖', desc: '日本語を見て英語の札を取る' }
+};
+
+/** 対戦相手（取りにいくまでの速さ・ミリ秒） */
+const OPPONENTS = {
+  kids:   { label: 'こども名人', icon: '🧒', min: 3600, max: 5400 },
+  town:   { label: '町内会の猛者', icon: '🧑', min: 2500, max: 3900 },
+  club:   { label: 'かるた部主将', icon: '🎓', min: 1800, max: 2800 },
+  meijin: { label: '永世名人', icon: '👹', min: 1150, max: 1900 }
+};
+
 const LEVEL_ORDER = ['es', 'jhs', 'hs', 'univ'];
-const MODE_ORDER = ['match', 'memory', 'quiz', 'listen'];
+const MODE_ORDER = ['taisen', 'hitori'];
+const STYLE_ORDER = ['mix', 'en', 'ja'];
+const OPPONENT_ORDER = ['kids', 'town', 'club', 'meijin'];
