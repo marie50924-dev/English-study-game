@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="小学生から大学生まで遊べる英単語マッチングゲーム。日本語と英語をつないで、正解したら発音が聞ける。">
+<meta name="theme-color" content="#0b1020">
+<title>EIGO MATCH ― 英単語マッチングゲーム</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== ホーム ===== -->
+  <section id="screen-home" class="screen active">
+    <header class="hero">
+      <h1 class="logo"><span class="logo-en">EIGO&nbsp;MATCH</span><span class="logo-ja">英単語マッチングゲーム</span></h1>
+      <p class="tagline">日本語と英語をつなげ。当たったら<strong>発音が聞ける</strong>。</p>
+    </header>
+
+    <div class="player-card">
+      <div class="player-lv">
+        <span class="lv-badge">Lv.<b id="playerLv">1</b></span>
+        <div class="lv-bar"><i id="lvBarFill"></i></div>
+        <span class="lv-xp" id="playerXp">0 / 100 XP</span>
+      </div>
+      <div class="player-stats">
+        <span>プレイ <b id="statPlays">0</b>回</span>
+        <span>正解 <b id="statCorrect">0</b></span>
+        <span>おぼえた単語 <b id="statWords">0</b></span>
+      </div>
+    </div>
+
+    <h2 class="section-title"><span class="num">1</span>レベルをえらぶ</h2>
+    <div class="grid-select" id="levelSelect"></div>
+
+    <h2 class="section-title"><span class="num">2</span>モードをえらぶ</h2>
+    <div class="grid-select modes" id="modeSelect"></div>
+
+    <div class="start-zone">
+      <div class="best-line">ベストスコア <b id="bestScore">0</b></div>
+      <button id="startBtn" class="btn-start" type="button">
+        <span>▶ ゲームスタート</span>
+      </button>
+    </div>
+
+    <div class="settings-row">
+      <button class="toggle" id="toggleSfx" type="button" aria-pressed="true">🔔 効果音</button>
+      <button class="toggle" id="toggleSpeak" type="button" aria-pressed="true">🔊 自動発音</button>
+      <button class="toggle" id="toggleRate" type="button">🐢 読む速さ：ふつう</button>
+    </div>
+    <p class="speech-warn" id="speechWarn" hidden>※ このブラウザは音声読み上げに対応していません。Chrome / Safari / Edge の利用をおすすめします。</p>
+
+    <details class="howto">
+      <summary>あそびかた</summary>
+      <ul>
+        <li><b>⚡ マッチング</b>：左の日本語と右の英語をタップしてペアを消す。正解するたびに時間が少し増える。</li>
+        <li><b>🃏 神経衰弱</b>：裏向きのカードをめくって、日本語と英語のペアをそろえる。</li>
+        <li><b>⏱️ スピードクイズ</b>：4択で答える。キーボードの <kbd>1</kbd>〜<kbd>4</kbd> でも回答できる。</li>
+        <li>ミスは<b>♥ 3つ</b>まで。連続正解するとコンボ倍率でスコアが伸びる。</li>
+        <li>正解した単語は自動で読み上げ。結果画面の 🔊 で何度でも聞き直せる。</li>
+      </ul>
+    </details>
+  </section>
+
+  <!-- ===== ゲーム ===== -->
+  <section id="screen-game" class="screen">
+    <div class="hud">
+      <div class="hud-top">
+        <button id="quitBtn" class="hud-quit" type="button" title="やめる">✕</button>
+        <span class="hud-chip" id="hudLevelLabel"></span>
+        <span class="hud-chip" id="hudModeLabel"></span>
+        <span class="hud-chip" id="hudStage">STAGE 1</span>
+        <span class="hud-hearts" id="hudHearts"></span>
+      </div>
+      <div class="hud-main">
+        <div class="hud-score"><span class="hud-label">SCORE</span><b id="hudScore">0</b></div>
+        <div class="hud-combo" id="hudCombo"></div>
+        <div class="hud-time"><span class="hud-label">TIME</span><b id="timerText">0</b></div>
+      </div>
+      <div class="timer-track"><i id="timerBar"></i></div>
+    </div>
+
+    <div id="board" class="board"></div>
+    <div id="comboPop" class="combo-pop"></div>
+  </section>
+
+  <!-- ===== リザルト ===== -->
+  <section id="screen-result" class="screen">
+    <div class="result-card">
+      <div class="result-headline" id="resultHeadline">TIME UP!</div>
+      <div class="rank" id="rankBadge">B</div>
+      <div class="result-score"><span>SCORE</span><b id="resultScore">0</b></div>
+      <div class="new-record" id="newRecord" hidden>🏆 ハイスコア更新！</div>
+
+      <div class="result-grid">
+        <div><span>正解</span><b id="resultCorrect">0</b></div>
+        <div><span>ミス</span><b id="resultWrong">0</b></div>
+        <div><span>最大コンボ</span><b id="resultCombo">0</b></div>
+        <div><span>正答率</span><b id="resultAcc">0%</b></div>
+        <div><span>獲得XP</span><b id="resultXp">0</b></div>
+        <div><span>ベスト</span><b id="resultBest">0</b></div>
+      </div>
+
+      <h3 class="words-title">出てきた単語（🔊 で発音）</h3>
+      <div class="word-list" id="wordList"></div>
+
+      <div class="result-actions">
+        <button id="retryBtn" class="btn-start" type="button">↻ もう一度</button>
+        <button id="homeBtn" class="btn-ghost" type="button">🏠 ホームへ</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="fxLayer" class="fx-layer" aria-hidden="true"></div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
