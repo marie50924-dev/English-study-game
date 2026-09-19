@@ -38,21 +38,68 @@
     md.innerHTML = '';
     MODE_ORDER.forEach((key) => {
       const m = MODES[key];
+      const unusable = m.needsSpeech && !Speech.supported;
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'select-card';
+      b.className = 'select-card' + (unusable ? ' disabled' : '');
       b.dataset.key = key;
+      b.disabled = unusable;
       b.innerHTML =
         '<span class="sc-icon">' + m.icon + '</span>' +
         '<span class="sc-label">' + m.label + '</span>' +
         '<span class="sc-desc">' + m.desc + '</span>' +
-        '<span class="sc-meta">' + m.time + '秒</span>';
+        '<span class="sc-meta">' + (unusable ? 'このブラウザでは使えません' : m.time + '秒') + '</span>';
       b.addEventListener('click', () => { selMode = key; Sfx.tap(); syncSelection(); });
       md.appendChild(b);
     });
   }
 
+  /* ---------- 苦手な単語 ---------- */
+  function renderWeak() {
+    const weak = Store.weakWords();
+    const card = $('#weakCard');
+    card.hidden = weak.length === 0;
+    if (!weak.length) {
+      // 苦手がなくなったら苦手モードも自動でOFFにする
+      if (Settings.get('weakMode')) Settings.set('weakMode', false);
+      return;
+    }
+    $('#weakCount').textContent = weak.length;
+
+    const on = Settings.get('weakMode');
+    const t = $('#weakToggle');
+    t.classList.toggle('on', on);
+    t.setAttribute('aria-pressed', String(on));
+    t.textContent = (on ? '✅ 苦手モード：ON' : '苦手モード：OFF');
+    card.classList.toggle('active', on);
+
+    const list = $('#weakList');
+    list.innerHTML = '';
+    weak.slice(0, 20).forEach((w) => {
+      const row = document.createElement('div');
+      row.className = 'weak-row';
+      row.innerHTML =
+        '<span class="w-en">' + w.en + '</span>' +
+        '<span class="w-ja">' + w.ja + '</span>' +
+        '<span class="w-miss">×' + w.m + '</span>';
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'w-speak';
+      b.textContent = '🔊';
+      b.title = w.en + ' を発音';
+      b.addEventListener('click', () => Speech.say(w.en));
+      row.appendChild(b);
+      list.appendChild(row);
+    });
+    if (weak.length > 20) {
+      list.appendChild(Object.assign(document.createElement('p'), {
+        className: 'empty', textContent: 'ほか ' + (weak.length - 20) + ' 語'
+      }));
+    }
+  }
+
   function syncSelection() {
+    if (MODES[selMode].needsSpeech && !Speech.supported) selMode = 'match';
     $('#levelSelect').querySelectorAll('.select-card').forEach((b) => {
       b.classList.toggle('on', b.dataset.key === selLevel);
     });
@@ -92,6 +139,19 @@
     t2.textContent = (sp ? '🔊' : '🔇') + ' 自動発音';
     const r = RATES.find((x) => Math.abs(x.v - Settings.get('rate')) < 0.01) || RATES[1];
     t3.textContent = r.label;
+  }
+
+  function bindWeak() {
+    $('#weakToggle').addEventListener('click', () => {
+      Settings.set('weakMode', !Settings.get('weakMode'));
+      Sfx.tap();
+      renderWeak();
+    });
+    $('#weakClear').addEventListener('click', () => {
+      if (!confirm('苦手な単語のリストを空にします。よろしいですか？')) return;
+      Store.clearWeak();
+      renderWeak();
+    });
   }
 
   function bindSettings() {
@@ -177,6 +237,7 @@
     });
 
     renderPlayer();
+    renderWeak();
     show('screen-result');
   }
 
@@ -185,8 +246,10 @@
     buildSelectors();
     syncSelection();
     renderPlayer();
+    renderWeak();
     renderSettings();
     bindSettings();
+    bindWeak();
 
     if (!Speech.supported) $('#speechWarn').hidden = false;
 
@@ -207,6 +270,7 @@
       Sfx.tap();
       syncSelection();
       renderPlayer();
+      renderWeak();
       show('screen-home');
     });
 

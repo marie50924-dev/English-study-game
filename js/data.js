@@ -327,8 +327,15 @@ const MODES = {
     icon: '⏱️',
     desc: '4択で次々こたえる連打バトル',
     time: 60
+  },
+  listen: {
+    label: 'リスニング',
+    icon: '🎧',
+    desc: '発音を聞いて意味を当てる',
+    time: 60,
+    needsSpeech: true
   }
 };
 
 const LEVEL_ORDER = ['es', 'jhs', 'hs', 'univ'];
-const MODE_ORDER = ['match', 'memory', 'quiz'];
+const MODE_ORDER = ['match', 'memory', 'quiz', 'listen'];

@@ -101,6 +101,28 @@ kbd {
 }
 .player-stats b { color: var(--text); font-size: 14px; }
 
+/* ---------- 苦手な単語 ---------- */
+.weak-card {
+  margin-top: 10px; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--panel-line);
+  border-radius: var(--radius);
+}
+.weak-card.active { border-color: var(--pink); box-shadow: 0 0 0 1px #f472b655, 0 10px 30px -18px #f472b6; }
+.weak-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.weak-title { font-size: 14px; font-weight: 700; }
+.weak-title b { color: var(--pink); font-size: 17px; }
+.weak-actions { margin-left: auto; display: flex; gap: 6px; }
+.toggle.mini { padding: 6px 10px; font-size: 11px; }
+.weak-card .toggle.on { border-color: var(--pink); background: #f472b626; }
+.weak-list { display: grid; gap: 6px; margin-top: 10px; max-height: 210px; overflow-y: auto; padding-right: 4px; }
+.weak-row {
+  display: grid; grid-template-columns: 1fr 1fr auto 40px; align-items: center; gap: 8px;
+  background: #ffffff0d; border: 1px solid var(--panel-line);
+  border-radius: 10px; padding: 7px 10px; font-size: 13px;
+}
+.w-miss { font-size: 11px; color: var(--red); }
+.weak-note { font-size: 11px; color: var(--muted); margin: 10px 0 0; line-height: 1.6; }
+
 /* ---------- セレクター ---------- */
 .section-title {
   font-size: 15px; margin: 26px 0 12px;
@@ -142,6 +164,9 @@ kbd {
   position: absolute; top: 10px; right: 12px;
   color: var(--accent); font-weight: 900;
 }
+.select-card.disabled { opacity: .45; cursor: not-allowed; }
+.select-card.disabled:hover { transform: none; border-color: var(--panel-line); }
+.select-card.disabled .sc-meta { color: var(--red); }
 .sc-icon { font-size: 26px; line-height: 1.1; }
 .sc-label { font-size: 17px; font-weight: 800; }
 .sc-desc { font-size: 12px; color: var(--muted); }
@@ -372,6 +397,35 @@ kbd {
 .opt.ok .opt-key { background: var(--green); color: #06251a; }
 .opt.ng { border-color: var(--red); background: #fb718533; animation: shake .4s; }
 
+/* ---------- リスニング ---------- */
+.listen-orb {
+  position: relative;
+  width: 128px; height: 128px; margin: 10px auto 0; display: block;
+  border-radius: 50%; font-size: 48px; line-height: 1;
+  color: #fff;
+  border: 2px solid #ffffff33;
+  background: radial-gradient(circle at 35% 30%, #67e8f9, #6366f1 60%, #4c1d95);
+  box-shadow: 0 16px 40px -14px #6366f1cc;
+  transition: transform .12s ease;
+}
+.listen-orb:hover { transform: scale(1.05); }
+.listen-orb:active { transform: scale(.95); }
+.listen-orb::after {
+  content: ''; position: absolute; inset: -6px; border-radius: 50%;
+  border: 2px solid #67e8f9; opacity: 0;
+}
+.listen-orb.ring::after { animation: sonar 1s ease-out; }
+@keyframes sonar {
+  from { transform: scale(1); opacity: .9; }
+  to { transform: scale(1.5); opacity: 0; }
+}
+.listen-hint { font-size: 11px; color: var(--muted); margin-top: 10px; }
+.listen-spell {
+  margin-top: 10px; font-size: 22px; font-weight: 800; letter-spacing: .12em;
+  color: #ffffff22; font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.listen-spell.revealed { color: #d8f3ff; animation: dealIn .3s ease; }
+
 /* ---------- 演出 ---------- */
 .combo-pop {
   position: fixed; left: 50%; top: 38%;
@@ -476,6 +530,8 @@ kbd {
   .result-grid { grid-template-columns: repeat(2, 1fr); }
   .word-row { grid-template-columns: 20px 1fr 1fr 38px; font-size: 13px; }
   .quiz-options { grid-template-columns: 1fr; }
+  .weak-row { grid-template-columns: 1fr 1fr auto 36px; font-size: 12px; }
+  .listen-orb { width: 108px; height: 108px; font-size: 40px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

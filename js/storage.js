@@ -5,12 +5,13 @@
 const Store = (() => {
   const KEY = 'eigo-match-v1';
   const DEFAULT = {
-    settings: { sfx: true, autoSpeak: true, rate: 0.85 },
+    settings: { sfx: true, autoSpeak: true, rate: 0.85, weakMode: false },
     best: {},        // "level:mode" -> スコア
     xp: 0,
     plays: 0,
     totalCorrect: 0,
-    seen: {}         // 英単語 -> 正解した回数
+    seen: {},        // 英単語 -> 正解した回数
+    weak: {}         // 英単語 -> { ja, m } ミスした回数（苦手リスト）
   };
 
   let data = load();
@@ -47,7 +48,30 @@ const Store = (() => {
       data.totalCorrect += res.correct;
       res.learned.forEach((w) => {
         if (w.ok) data.seen[w.en] = (data.seen[w.en] || 0) + 1;
+        if (w.miss > 0) {
+          // 間違えた単語は苦手リストへ
+          const cur = data.weak[w.en] || { ja: w.ja, m: 0 };
+          cur.ja = w.ja;
+          cur.m += w.miss;
+          data.weak[w.en] = cur;
+        } else if (w.ok && data.weak[w.en]) {
+          // ノーミスで正解できたら苦手度を1つ下げ、0になったら卒業
+          data.weak[w.en].m -= 1;
+          if (data.weak[w.en].m <= 0) delete data.weak[w.en];
+        }
       });
+      save();
+    },
+
+    /** 苦手な単語を「よく間違えた順」で返す */
+    weakWords() {
+      return Object.keys(data.weak)
+        .map((en) => ({ en, ja: data.weak[en].ja, m: data.weak[en].m }))
+        .sort((a, b) => b.m - a.m);
+    },
+
+    clearWeak(en) {
+      if (en == null) data.weak = {}; else delete data.weak[en];
       save();
     },
     settings() { return data.settings; },

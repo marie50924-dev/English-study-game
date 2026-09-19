@@ -32,6 +32,18 @@
       </div>
     </div>
 
+    <div class="weak-card" id="weakCard" hidden>
+      <div class="weak-head">
+        <span class="weak-title">🔁 苦手な単語 <b id="weakCount">0</b> 語</span>
+        <div class="weak-actions">
+          <button class="toggle" id="weakToggle" type="button" aria-pressed="false">苦手モード</button>
+          <button class="toggle mini" id="weakClear" type="button">リセット</button>
+        </div>
+      </div>
+      <div class="weak-list" id="weakList"></div>
+      <p class="weak-note">苦手モードをONにすると、間違えた単語だけが出題されます。ノーミスで正解できた単語はリストから消えます。</p>
+    </div>
+
     <h2 class="section-title"><span class="num">1</span>レベルをえらぶ</h2>
     <div class="grid-select" id="levelSelect"></div>
 
@@ -58,8 +70,11 @@
         <li><b>⚡ マッチング</b>：左の日本語と右の英語をタップしてペアを消す。正解するたびに時間が少し増える。</li>
         <li><b>🃏 神経衰弱</b>：裏向きのカードをめくって、日本語と英語のペアをそろえる。</li>
         <li><b>⏱️ スピードクイズ</b>：4択で答える。キーボードの <kbd>1</kbd>〜<kbd>4</kbd> でも回答できる。</li>
+        <li><b>🎧 リスニング</b>：英語の発音だけを聞いて意味を当てる。<kbd>R</kbd> キーでもう一度聞ける。</li>
         <li>ミスは<b>♥ 3つ</b>まで。連続正解するとコンボ倍率でスコアが伸びる。</li>
         <li>正解した単語は自動で読み上げ。結果画面の 🔊 で何度でも聞き直せる。</li>
+        <li>間違えた単語は「苦手な単語」に貯まる。<b>苦手モード</b>で集中的に復習できる。</li>
+        <li>マッチングは一定数そろえるとステージが上がり、場のカードが増えていく。</li>
       </ul>
     </details>
   </section>

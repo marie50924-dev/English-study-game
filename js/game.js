@@ -196,6 +196,22 @@ const Game = (() => {
 
   /* ---------- 開始 / 終了 ---------- */
 
+  /**
+   * 出題する単語プールを作る。
+   * 苦手モードがONのときは、間違えた単語を優先して出題する。
+   */
+  function buildPool(level) {
+    const base = VOCAB[level].words;
+    if (!Settings.get('weakMode')) return shuffle(base);
+
+    const weak = Store.weakWords().map((w) => ({ en: w.en, ja: w.ja }));
+    const MIN = 12; // 4択やペアを作るのに足りるだけの語数は確保する
+    if (weak.length >= MIN) return shuffle(weak);
+    // 苦手な語を先頭にそろえ、足りない分だけ通常の単語で埋める
+    const fill = shuffle(base.filter((b) => !weak.some((w) => w.en === b.en)));
+    return shuffle(weak).concat(fill.slice(0, MIN - weak.length));
+  }
+
   function start(level, mode) {
     stopLoop();
     s = newSession(level, mode);
@@ -214,7 +230,7 @@ const Game = (() => {
     // init の途中で出題が走るモードがあるので、先に running を立てておく
     s.running = true;
     s._prev = 0;
-    impl.init(board, shuffle(VOCAB[level].words));
+    impl.init(board, buildPool(level));
     rafId = requestAnimationFrame(loop);
   }
 
@@ -269,9 +285,12 @@ const Game = (() => {
    * 左に日本語、右に英語。対応するカードを選んで消していく。
    * ======================================================= */
   const MatchMode = (() => {
-    const SLOTS = 5;
-    let slots = [];      // { word, jaNode, enNode }
+    const SLOTS = 5;       // 開始時のペア数
+    const MAX_SLOTS = 7;   // ステージが上がると増える上限
+    const STAGE_EVERY = 8; // 何ペア消すごとにステージアップするか
+    let slots = [];        // { word, jaNode, enNode }
     let deck = [];
+    let listJa = null, listEn = null;
     let selJa = null, selEn = null, lock = false;
 
     function randomOrder() { return Math.floor(Math.random() * 10000); }
@@ -322,6 +341,16 @@ const Game = (() => {
       if (selJa != null && selEn != null) judge();
     }
 
+    /** カードを1ペア分追加する（ステージアップ時） */
+    function addSlot() {
+      const i = slots.length;
+      const { jaNode, enNode } = makeCards(i);
+      listJa.appendChild(jaNode);
+      listEn.appendChild(enNode);
+      slots.push({ word: null, jaNode, enNode });
+      fillSlot(i, deck.shift() || null);
+    }
+
     function judge() {
       const a = selJa, b = selEn;
       if (a === b) {
@@ -337,8 +366,16 @@ const Game = (() => {
           fillSlot(a, next || null);
           lock = false;
           if (!next && slots.every((sl) => !sl.word)) {
-            s.stage++;
             end('complete');
+            return;
+          }
+          // 一定数消すごとにステージアップ。場のカードが増えて難しくなる。
+          if (s.correct % STAGE_EVERY === 0 && deck.length) {
+            s.stage++;
+            popCombo('STAGE ' + s.stage + '!', 'good');
+            Sfx.clear();
+            renderHud();
+            if (slots.length < MAX_SLOTS) addSlot();
           }
         }, 380);
       } else {
@@ -359,6 +396,20 @@ const Game = (() => {
       }
     }
 
+    function makeCards(i) {
+      const jaNode = el('button', 'card card-ja');
+      const enNode = el('button', 'card card-en');
+      jaNode.type = enNode.type = 'button';
+      jaNode.addEventListener('click', () => pick('ja', i));
+      enNode.addEventListener('click', () => {
+        // 英語カードはいつでも音を確認できる
+        const word = slots[i].word;
+        pick('en', i);
+        if (!Settings.get('autoSpeak') && word) Speech.say(word.en);
+      });
+      return { jaNode, enNode };
+    }
+
     return {
       init(board, words) {
         deck = words.slice();
@@ -371,23 +422,15 @@ const Game = (() => {
         const colEn = el('div', 'match-col');
         colJa.appendChild(el('div', 'col-title', '日本語'));
         colEn.appendChild(el('div', 'col-title', 'English'));
-        const listJa = el('div', 'col-list');
-        const listEn = el('div', 'col-list');
+        listJa = el('div', 'col-list');
+        listEn = el('div', 'col-list');
         colJa.appendChild(listJa);
         colEn.appendChild(listEn);
         wrap.append(colJa, colEn);
         board.appendChild(wrap);
 
         for (let i = 0; i < SLOTS; i++) {
-          const jaNode = el('button', 'card card-ja');
-          const enNode = el('button', 'card card-en');
-          jaNode.type = enNode.type = 'button';
-          jaNode.addEventListener('click', () => pick('ja', i));
-          enNode.addEventListener('click', () => {
-            pick('en', i);
-            // 英語カードはいつでも音を確認できる
-            if (!Settings.get('autoSpeak') && slots[i].word) Speech.say(slots[i].word.en);
-          });
+          const { jaNode, enNode } = makeCards(i);
           listJa.appendChild(jaNode);
           listEn.appendChild(enNode);
           slots.push({ word: null, jaNode, enNode });
@@ -586,7 +629,113 @@ const Game = (() => {
     };
   })();
 
-  const MODE_IMPL = { match: MatchMode, memory: MemoryMode, quiz: QuizMode };
+  /* =======================================================
+   * モード4: リスニング
+   * 英単語の発音だけを頼りに、意味（日本語）を4択で答える。
+   * ======================================================= */
+  const ListenMode = (() => {
+    let pool = [], deck = [], boardEl = null, current = null, lock = false, qno = 0, orb = null;
+
+    function replay() {
+      if (!current) return;
+      Speech.say(current.word.en);
+      if (orb) {
+        orb.classList.remove('ring');
+        void orb.offsetWidth; // アニメーションを再生し直す
+        orb.classList.add('ring');
+      }
+    }
+
+    function nextQuestion() {
+      if (!s || !s.running) return;
+      if (!deck.length) deck = shuffle(pool);
+      const word = deck.shift();
+      qno++;
+
+      const others = shuffle(pool.filter((w) => w.en !== word.en)).slice(0, 3);
+      const options = shuffle([word].concat(others));
+      current = { word, options };
+
+      boardEl.innerHTML = '';
+      const wrap = el('div', 'quiz listen');
+      wrap.appendChild(el('div', 'quiz-no', 'Q' + qno));
+      wrap.appendChild(el('div', 'quiz-dir', '🎧 発音を聞いて意味をえらぶ'));
+
+      orb = el('button', 'listen-orb', '🔊');
+      orb.type = 'button';
+      orb.title = 'もう一度聞く';
+      orb.addEventListener('click', replay);
+      wrap.appendChild(orb);
+      wrap.appendChild(el('div', 'listen-hint', 'タップ（または R キー）でもう一度'));
+
+      const spell = el('div', 'listen-spell', '? ? ? ? ?');
+      wrap.appendChild(spell);
+
+      const opts = el('div', 'quiz-options');
+      options.forEach((o, i) => {
+        const b = el('button', 'opt');
+        b.type = 'button';
+        b.innerHTML = '<span class="opt-key">' + (i + 1) + '</span>';
+        b.appendChild(el('span', 'opt-text', o.ja));
+        b.addEventListener('click', () => answer(o, b, spell));
+        opts.appendChild(b);
+      });
+      wrap.appendChild(opts);
+      boardEl.appendChild(wrap);
+
+      lock = false;
+      replay();
+    }
+
+    function answer(choice, btn, spell) {
+      if (lock || !current) return;
+      lock = true;
+      const { word } = current;
+      spell.textContent = word.en; // 答え合わせでつづりを見せる
+      spell.classList.add('revealed');
+
+      if (choice.en === word.en) {
+        btn.classList.add('ok');
+        onCorrect(word, { base: 150, bonusTime: 1.5, node: btn });
+        setTimeout(nextQuestion, 900);
+      } else {
+        btn.classList.add('ng');
+        [...boardEl.querySelectorAll('.opt')].forEach((b, i) => {
+          if (current.options[i].en === word.en) b.classList.add('ok');
+        });
+        onWrong(word, { penaltyTime: 3 });
+        Speech.say(word.en);
+        setTimeout(() => { if (s && s.running) nextQuestion(); }, 1400);
+      }
+    }
+
+    function onKey(e) {
+      if (e.key === 'r' || e.key === 'R') { replay(); return; }
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 4) {
+        const btns = boardEl.querySelectorAll('.opt');
+        if (btns[n - 1]) btns[n - 1].click();
+      }
+    }
+
+    return {
+      init(board, words) {
+        boardEl = board;
+        pool = words.slice();
+        deck = shuffle(pool);
+        qno = 0;
+        document.addEventListener('keydown', onKey);
+        nextQuestion();
+      },
+      cleanup() {
+        lock = true;
+        current = null;
+        document.removeEventListener('keydown', onKey);
+      }
+    };
+  })();
+
+  const MODE_IMPL = { match: MatchMode, memory: MemoryMode, quiz: QuizMode, listen: ListenMode };
 
   return {
     start,
